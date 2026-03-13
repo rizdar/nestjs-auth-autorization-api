@@ -80,4 +80,60 @@ export class MailService {
       throw error;
     }
   }
+
+  async sendEmailVerification(
+    toEmail: string,
+    toName: string,
+    verificationToken: string,
+  ): Promise<void> {
+    const from = this.configService.get<string>('mail.from');
+    const verifyUrl = `http://localhost:3000/auth/verify-email?token=${verificationToken}`;
+
+    const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #333;">Verify Your Email</h2>
+      <p>Hi <strong>${toName}</strong>,</p>
+      <p>Thanks for registering! Please verify your email address by clicking the button below:</p>
+      <div style="text-align: center; margin: 30px 0;">
+        <a 
+          href="${verifyUrl}" 
+          style="
+            background-color: #4F46E5;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 16px;
+          "
+        >
+          Verify Email
+        </a>
+      </div>
+      <p>Or copy this link to your browser:</p>
+      <p style="color: #666; word-break: break-all;">${verifyUrl}</p>
+      <p><strong>This link will expire in 24 hours.</strong></p>
+      <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+      <p style="color: #999; font-size: 12px;">
+        If you did not create an account, please ignore this email.
+      </p>
+    </div>
+  `;
+
+    try {
+      await this.transporter.sendMail({
+        from,
+        to: toEmail,
+        subject: 'Verify Your Email Address',
+        html,
+      });
+      this.logger.log(`Verification email sent to: ${toEmail}`, 'MailService');
+    } catch (error) {
+      this.logger.error(
+        `Failed to send verification email to: ${toEmail}`,
+        error.message,
+        'MailService',
+      );
+      throw error;
+    }
+  }
 }

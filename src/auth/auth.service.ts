@@ -17,6 +17,8 @@ import { ForgotPasswordDto } from './schemas/forgot-password.schema';
 import { ResetPasswordDto } from './schemas/reset-password.schema';
 import { RefreshTokenDto } from './schemas/refresh-token.schema';
 import { MailService } from 'src/mail/mail.service';
+import { VerifyEmailDto } from './schemas/verify-email.schema';
+import { ResendVerificationDto } from './schemas/resend-verifycation.schema';
 
 @Injectable()
 export class AuthService {
@@ -40,11 +42,24 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(dto.password, 12);
 
+    // Generate verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationExpiry = new Date(Date.now() + 1000 * 60 * 60 * 24); // 24 jam
+
     const user = await this.usersService.create({
       email: dto.email,
       name: dto.name,
       password: hashedPassword,
+      emailVerificationToken: verificationToken,
+      emailVerificationExpiry: verificationExpiry,
     });
+
+    // Kirim email verifikasi
+    await this.mailService.sendEmailVerification(
+      user.email,
+      user.name,
+      verificationToken,
+    );
 
     this.logger.log(`User registered successfully: ${user.id}`, 'AuthService');
 
@@ -52,8 +67,15 @@ export class AuthService {
     await this.saveRefreshToken(user.id, tokens.refreshToken);
 
     return {
-      user: { id: user.id, email: user.email, name: user.name },
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        isEmailVerified: user.isEmailVerified,
+      },
       ...tokens,
+      message:
+        'Registration successful. Please check your email to verify your account.',
     };
   }
 
@@ -257,5 +279,81 @@ export class AuthService {
     const value = parseInt(expiry.slice(0, -1));
     const map = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
     return value * (map[unit] || 1000);
+  }
+
+  // ─── Verify Email ─────────────────────────────────────────────
+  async verifyEmail(dto: VerifyEmailDto) {
+    this.logger.log('Email verification attempt', 'AuthService');
+
+    const user = await this.prisma.user.findFirst({
+      where: { emailVerificationToken: dto.token },
+    });
+
+    if (!user) {
+      this.logger.warn('Invalid verification token', 'AuthService');
+      throw new BadRequestException('Invalid verification token');
+    }
+
+    if (user.isEmailVerified) {
+      return { message: 'Email already verified' };
+    }
+
+    if (new Date() > user.emailVerificationExpiry!) {
+      this.logger.warn('Verification token expired', 'AuthService');
+      throw new BadRequestException(
+        'Verification token has expired. Please request a new one.',
+      );
+    }
+
+    await this.usersService.updateById(user.id, {
+      isEmailVerified: true,
+      emailVerificationToken: null,
+      emailVerificationExpiry: null,
+    });
+
+    this.logger.log(`Email verified for user: ${user.id}`, 'AuthService');
+
+    return { message: 'Email verified successfully' };
+  }
+
+  // ─── Resend Verification ──────────────────────────────────────
+  async resendVerification(dto: ResendVerificationDto) {
+    this.logger.log(`Resend verification for: ${dto.email}`, 'AuthService');
+
+    const user = await this.usersService.findByEmail(dto.email);
+
+    if (!user) {
+      // Security: jangan kasih tahu email tidak ada
+      return {
+        message: 'If the email exists, a verification link has been sent',
+      };
+    }
+
+    if (user.isEmailVerified) {
+      throw new BadRequestException('Email is already verified');
+    }
+
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationExpiry = new Date(Date.now() + 1000 * 60 * 60 * 24); // 24 jam
+
+    await this.usersService.updateById(user.id, {
+      emailVerificationToken: verificationToken,
+      emailVerificationExpiry: verificationExpiry,
+    });
+
+    await this.mailService.sendEmailVerification(
+      user.email,
+      user.name,
+      verificationToken,
+    );
+
+    this.logger.log(
+      `Verification email resent to: ${user.email}`,
+      'AuthService',
+    );
+
+    return {
+      message: 'If the email exists, a verification link has been sent',
+    };
   }
 }
