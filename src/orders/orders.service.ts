@@ -8,12 +8,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { LoggerService } from '../logger/logger.service';
 import { CheckoutDto } from './schemas/checkout.schema';
 import { UpdateOrderStatusDto } from './schemas/update-order.schema';
+import { CouponsService } from '../coupons/coupons.service';
 
 @Injectable()
 export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly logger: LoggerService,
+    private readonly couponsService: CouponsService,
   ) {}
 
   // ─── Checkout ─────────────────────────────────────────────────
@@ -55,10 +57,24 @@ export class OrdersService {
     }
 
     // Hitung total
-    const totalAmount = cart.items.reduce(
+    let totalAmount = cart.items.reduce(
       (sum, item) => sum + Number(item.product.price) * item.quantity,
       0,
     );
+
+    let discountAmount = 0;
+    let couponId: number | null = null;
+
+    if (dto.couponCode) {
+      const { coupon, discountAmount: calculatedDiscount } =
+        await this.couponsService.validateAndCalculate(
+          dto.couponCode,
+          totalAmount,
+        );
+      discountAmount = calculatedDiscount;
+      couponId = coupon.id;
+      totalAmount -= discountAmount;
+    }
 
     // Buat order dalam satu transaction
     const order = await this.prisma.$transaction(async (tx) => {
@@ -68,6 +84,8 @@ export class OrdersService {
           userId,
           addressId: dto.addressId,
           totalAmount,
+          discountAmount,
+          couponId,
           notes: dto.notes,
           items: {
             create: cart.items.map((item) => ({
@@ -91,7 +109,12 @@ export class OrdersService {
         });
       }
 
-      // 3. Clear cart
+      // 3. Consume coupon if any
+      if (couponId) {
+        await this.couponsService.consumeCoupon(tx, couponId);
+      }
+
+      // 4. Clear cart
       await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
 
       return newOrder;

@@ -49,6 +49,7 @@ export class OrdersController {
     schema: {
       example: {
         addressId: 1,
+        couponCode: 'PROMO2024',
         notes: 'Please handle with care',
       },
     },
