@@ -20,6 +20,7 @@ import { AddressesModule } from './addresses/addresses.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { CouponsModule } from './coupons/coupons.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     PaymentsModule,
     ReviewsModule,
     DashboardModule,
+    CouponsModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: 'APP_GUARD', useClass: ThrottlerGuard }],
